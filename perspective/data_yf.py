@@ -37,6 +37,21 @@ def get_logo(website: str | None) -> str | None:
     return f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
 
 
+def logo_for_ticker(symbol: str) -> str | None:
+    """Ticker-keyed logo (for search results, where we don't yet have a website)."""
+    if not symbol:
+        return None
+    base = symbol.split(".")[0].upper()  # strip exchange suffix, e.g. RY.TO
+    url = f"https://financialmodelingprep.com/image-stock/{base}.png"
+    try:
+        r = requests.get(url, timeout=3, stream=True)
+        if r.status_code == 200 and r.headers.get("Content-Type", "").startswith("image"):
+            return url
+    except Exception:
+        pass
+    return None
+
+
 def _safe_info(ticker: str) -> dict[str, Any]:
     """Yahoo's `.info` dict, or {} if the ticker is unknown/unreachable."""
     try:
@@ -103,6 +118,13 @@ def get_key_stats(ticker: str) -> dict[str, Any]:
         "P/E (trailing)": _round(info.get("trailingPE")),
         "P/E (forward)": _round(info.get("forwardPE")),
         "Price / sales": _round(info.get("priceToSalesTrailing12Months")),
+        "Rev. growth (YoY)": _pct(info.get("revenueGrowth")),
+        "Earnings growth": _pct(info.get("earningsGrowth")),
+        "Return on equity": _pct(info.get("returnOnEquity")),
+        "Debt / equity": _round(info.get("debtToEquity")),
+        "52-wk change": _pct(info.get("52WeekChange")),
+        "Analyst target": (f"${_round(info.get('targetMeanPrice'))}"
+                           if info.get("targetMeanPrice") else None),
         "Beta": _round(info.get("beta")),
         "Dividend yield": _pct(info.get("dividendYield"))
         if info.get("dividendYield") and info["dividendYield"] < 1
@@ -156,12 +178,32 @@ def get_news(ticker: str, limit: int = 6) -> list[dict[str, str]]:
     return items
 
 
+def get_numeric_stats(ticker: str) -> dict[str, float | None]:
+    """Raw numeric (percent) metrics for side-by-side bar charts."""
+    info = _safe_info(ticker)
+
+    def pct(x: Any) -> float | None:
+        try:
+            return round(float(x) * 100, 1)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "Gross margin": pct(info.get("grossMargins")),
+        "Operating margin": pct(info.get("operatingMargins")),
+        "Profit margin": pct(info.get("profitMargins")),
+        "Rev. growth": pct(info.get("revenueGrowth")),
+        "Return on equity": pct(info.get("returnOnEquity")),
+    }
+
+
 def get_snapshot(ticker: str) -> dict[str, Any]:
     """Everything the rest of the app needs about one company, in one call."""
     profile = get_profile(ticker)
     return {
         "profile": profile,
         "key_stats": get_key_stats(ticker),
+        "num": get_numeric_stats(ticker),
         "news": get_news(ticker),
         "valid": bool(profile.get("name") and profile["name"] != ticker.upper())
         or is_valid(ticker),

@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import re
 import time
+from typing import Any
 
-from .base import LLMProvider
+from .base import LLMProvider, parse_json
 
 _TRANSIENT = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "overloaded")
+
+
+def _retry_delay(msg: str) -> float | None:
+    """Honor the server's suggested wait (capped) on rate-limit errors."""
+    m = re.search(r"retry in ([\d.]+)s", msg) or re.search(r"retryDelay'?:?\s*'?(\d+)s", msg)
+    if m:
+        try:
+            return min(float(m.group(1)) + 0.5, 30.0)
+        except ValueError:
+            return None
+    return None
 
 
 class GeminiProvider(LLMProvider):
@@ -19,17 +32,8 @@ class GeminiProvider(LLMProvider):
         self._client = genai.Client(api_key=api_key)
         self._model = model
 
-    def generate(self, prompt: str, system: str | None = None, use_search: bool = False) -> str:
-        from google.genai import types
-
-        config_kwargs: dict = {}
-        if system:
-            config_kwargs["system_instruction"] = system
-        if use_search:
-            config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
-
-        config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
-
+    def _run(self, prompt: str, config) -> str:
+        """Single call with backoff retry on transient overloads."""
         last_err: Exception | None = None
         for attempt in range(4):  # ~0.8s, 1.6s, 3.2s backoff between tries
             try:
@@ -39,8 +43,28 @@ class GeminiProvider(LLMProvider):
                 return (resp.text or "").strip()
             except Exception as e:  # noqa: BLE001
                 last_err = e
-                if attempt < 3 and any(t in str(e) for t in _TRANSIENT):
-                    time.sleep(0.8 * (2**attempt))
+                msg = str(e)
+                if attempt < 3 and any(t in msg for t in _TRANSIENT):
+                    time.sleep(_retry_delay(msg) or 0.8 * (2**attempt))
                     continue
                 raise
         raise last_err  # pragma: no cover
+
+    def generate(self, prompt: str, system: str | None = None, use_search: bool = False) -> str:
+        from google.genai import types
+
+        kwargs: dict = {}
+        if system:
+            kwargs["system_instruction"] = system
+        if use_search:
+            kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+        config = types.GenerateContentConfig(**kwargs) if kwargs else None
+        return self._run(prompt, config)
+
+    def generate_json(self, prompt: str, system: str | None = None) -> dict[str, Any]:
+        from google.genai import types
+
+        kwargs: dict = {"response_mime_type": "application/json"}
+        if system:
+            kwargs["system_instruction"] = system
+        return parse_json(self._run(prompt, types.GenerateContentConfig(**kwargs)))
