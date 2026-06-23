@@ -1,0 +1,19 @@
+# Secrets — never commit
+.streamlit/secrets.toml
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# local run logs / scratch
+_run.log
+_run.err
+_*.py
