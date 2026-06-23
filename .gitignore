@@ -13,7 +13,7 @@ env/
 .DS_Store
 .vscode/
 
-# local run logs / scratch
+# local run logs / scratch (note: _[a-z]* avoids matching __init__.py / dunders)
 _run.log
 _run.err
-_*.py
+_[a-z]*.py
