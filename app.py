@@ -1,20 +1,24 @@
-"""Perspective — view one company through the lens of another.
+"""Counterpoint — view one company through the lens of another.
 
-Enter a Target ticker (and optionally a Lens ticker) to get an AI-assisted,
-web-grounded brief on each, a strategic "through the lens" analysis, and a chat
-to dig deeper. Data: yfinance (free). Brain: configurable LLM (Gemini now).
+Enter a Target ticker (and optionally a Lens ticker) for AI-assisted, web-grounded
+briefs, a strategic "through the lens" analysis, and a chat to dig deeper.
+Data: yfinance (free). Brain: configurable LLM (Gemini now).
 """
 
 from __future__ import annotations
 
-import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from perspective import analysis, chat, data_yf
+from perspective import analysis, chat, data_yf, ui
 from perspective.providers import get_llm
 
-st.set_page_config(page_title="Counterpoint — Investment Analyzer", page_icon="🎼", layout="wide")
+st.set_page_config(
+    page_title="Counterpoint — Investment Analyzer",
+    page_icon=":material/compare_arrows:",
+    layout="wide",
+)
+ui.inject_styles()
 
 
 # --------------------------------------------------------------------------- #
@@ -48,48 +52,41 @@ def lens_analysis(target: str, lens: str, _llm):
 # --------------------------------------------------------------------------- #
 # UI helpers
 # --------------------------------------------------------------------------- #
-def render_profile(snap: dict, accent: str):
-    p = snap["profile"]
-    st.markdown(f"#### {p['name']}  ·  `{p['ticker']}`")
-    meta = " · ".join(x for x in [p.get("sector"), p.get("industry")] if x)
-    if meta:
-        st.caption(meta)
+def render_profile(snap: dict, alt: bool = False):
+    ui.company_header(snap["profile"], alt=alt)
 
     stats = snap["key_stats"]
     cols = st.columns(4)
-    headline = ["Market cap", "Revenue (ttm)", "Profit margin", "P/E (trailing)"]
-    for col, label in zip(cols, headline):
+    for col, label in zip(cols, ["Market cap", "Revenue (ttm)", "Profit margin", "P/E (trailing)"]):
         col.metric(label, stats.get(label) or "—")
 
-    if p.get("summary"):
+    if snap["profile"].get("summary"):
         with st.expander("Business summary"):
-            st.write(p["summary"])
+            st.write(snap["profile"]["summary"])
 
     with st.expander("All metrics"):
+        import pandas as pd
+
         rows = [(k, str(v)) for k, v in stats.items() if v is not None]
         if rows:
             st.table(pd.DataFrame(rows, columns=["Metric", "Value"]).set_index("Metric"))
+        p = snap["profile"]
         extras = []
         if p.get("employees"):
             extras.append(f"Employees: {p['employees']:,}")
         if p.get("website"):
-            extras.append(f"Website: {p['website']}")
+            extras.append(f"[{p['website']}]({p['website']})")
         if extras:
             st.caption(" · ".join(extras))
 
 
-def price_chart(snap_ticker: str, period: str, color: str):
-    df = price(snap_ticker, period)
+def price_chart(ticker: str, period: str, color: str):
+    df = price(ticker, period)
     if df.empty:
         st.caption("No price history available.")
         return
-    date_col = df.columns[0]
-    fig = go.Figure(go.Scatter(x=df[date_col], y=df["Close"], mode="lines", line=dict(color=color)))
-    fig.update_layout(
-        height=240, margin=dict(l=0, r=0, t=10, b=0), yaxis_title="Close ($)",
-        showlegend=False,
-    )
-    st.plotly_chart(fig, width="stretch")
+    fig = go.Figure(go.Scatter(x=df[df.columns[0]], y=df["Close"], mode="lines"))
+    st.plotly_chart(ui.style_price(fig, color), width="stretch")
 
 
 def comparison_chart(target: str, lens: str, period: str):
@@ -97,38 +94,29 @@ def comparison_chart(target: str, lens: str, period: str):
     if dt.empty or dl.empty:
         return
     fig = go.Figure()
-    for tk, df, color in ((target, dt, "#1F6F5C"), (lens, dl, "#B5651D")):
-        base = df["Close"].iloc[0]
-        norm = df["Close"] / base * 100
-        fig.update_layout()
-        fig.add_trace(go.Scatter(x=df[df.columns[0]], y=norm, mode="lines", name=tk, line=dict(color=color)))
-    fig.update_layout(
-        height=300, margin=dict(l=0, r=0, t=10, b=0),
-        yaxis_title="Indexed to 100", legend=dict(orientation="h"),
-    )
-    st.plotly_chart(fig, width="stretch")
+    for tk, df, color in ((target, dt, ui.ACCENT), (lens, dl, ui.ACCENT_2)):
+        norm = df["Close"] / df["Close"].iloc[0] * 100
+        fig.add_trace(go.Scatter(x=df[df.columns[0]], y=norm, mode="lines",
+                                 name=tk, line=dict(color=color, width=2)))
+    st.plotly_chart(ui.style_compare(fig), width="stretch")
 
 
 def render_news(snap: dict):
     news = snap.get("news") or []
     if not news:
         return
-    with st.expander("Yahoo headlines"):
+    with st.expander("Latest headlines"):
         for n in news:
             if n["url"]:
-                st.markdown(f"- [{n['title']}]({n['url']})  ·  _{n['publisher']}_")
+                st.markdown(f"- [{n['title']}]({n['url']}) — _{n['publisher']}_")
             else:
-                st.markdown(f"- {n['title']}  ·  _{n['publisher']}_")
+                st.markdown(f"- {n['title']} — _{n['publisher']}_")
 
 
 # --------------------------------------------------------------------------- #
 # Header + inputs
 # --------------------------------------------------------------------------- #
-st.title("🎼 Counterpoint")
-st.markdown(
-    "See one company **through the lens of another**. "
-    "Enter a **Target** to analyze, and optionally a **Lens** company to view it from."
-)
+ui.masthead()
 
 with st.sidebar:
     st.header("About")
@@ -141,7 +129,7 @@ with st.sidebar:
         st.caption(f"AI provider: **{get_llm_cached().name}**")
     except Exception as e:  # noqa: BLE001
         st.error(f"LLM not configured: {e}")
-    st.caption("Data: Yahoo Finance (yfinance). Not investment advice.")
+    st.caption("Data: Yahoo Finance. Not investment advice.")
 
 with st.form("tickers"):
     c1, c2, c3 = st.columns([3, 3, 2])
@@ -154,7 +142,7 @@ if submitted:
     st.session_state["target"] = (target_in or "").strip().upper()
     st.session_state["lens"] = (lens_in or "").strip().upper()
     st.session_state["period"] = period
-    st.session_state["chat_history"] = []  # reset chat for a new pair
+    st.session_state["chat_history"] = []
 
 target = st.session_state.get("target", "")
 lens = st.session_state.get("lens", "")
@@ -191,34 +179,31 @@ except Exception as e:  # noqa: BLE001
 # --------------------------------------------------------------------------- #
 # Profiles
 # --------------------------------------------------------------------------- #
-st.divider()
 if l_snap:
-    pc1, pc2 = st.columns(2)
+    ui.section("Companies", "adjust")
+    pc1, pc2 = st.columns(2, gap="large")
     with pc1:
-        st.subheader("🎯 Target")
-        render_profile(t_snap, "#1F6F5C")
-        price_chart(target, period, "#1F6F5C")
+        render_profile(t_snap)
+        price_chart(target, period, ui.ACCENT)
         render_news(t_snap)
     with pc2:
-        st.subheader("🔍 Lens")
-        render_profile(l_snap, "#B5651D")
-        price_chart(lens, period, "#B5651D")
+        render_profile(l_snap, alt=True)
+        price_chart(lens, period, ui.ACCENT_2)
         render_news(l_snap)
 
-    st.markdown("##### Price performance (indexed to 100)")
+    ui.section("Relative performance", "show_chart", "Indexed to 100 at window start")
     comparison_chart(target, lens, period)
 else:
-    st.subheader("🎯 Company")
-    render_profile(t_snap, "#1F6F5C")
-    price_chart(target, period, "#1F6F5C")
+    ui.section("Company", "business")
+    render_profile(t_snap)
+    price_chart(target, period, ui.ACCENT)
     render_news(t_snap)
 
 # --------------------------------------------------------------------------- #
 # AI briefs
 # --------------------------------------------------------------------------- #
-st.divider()
-st.subheader("📰 Brief")
-brief_cols = st.columns(2) if l_snap else [st.container()]
+ui.section("Briefs", "article", "Business, recent news, accomplishments, goals")
+brief_cols = st.columns(2, gap="large") if l_snap else [st.container()]
 with brief_cols[0]:
     if l_snap:
         st.markdown(f"**{t_snap['profile']['name']}**")
@@ -240,8 +225,10 @@ if l_snap:
 # Through the lens
 # --------------------------------------------------------------------------- #
 if l_snap:
-    st.divider()
-    st.subheader(f"🧭 {t_snap['profile']['name']} through the lens of {l_snap['profile']['name']}")
+    ui.section(
+        f"{t_snap['profile']['name']} through the lens of {l_snap['profile']['name']}",
+        "compare_arrows",
+    )
     with st.spinner("Analyzing…"):
         try:
             st.markdown(lens_analysis(target, lens, llm))
@@ -251,8 +238,7 @@ if l_snap:
 # --------------------------------------------------------------------------- #
 # Chat
 # --------------------------------------------------------------------------- #
-st.divider()
-st.subheader("💬 Ask a question")
+ui.section("Ask a question", "forum")
 
 context = data_yf.snapshot_to_text(t_snap)
 if l_snap:

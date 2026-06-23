@@ -8,9 +8,33 @@ rather than raising, so a flaky field never takes down the whole profile.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 import pandas as pd
+import requests
 import yfinance as yf
+
+
+def _domain(website: str | None) -> str | None:
+    if not website:
+        return None
+    netloc = urlparse(website if "//" in website else f"http://{website}").netloc or website
+    return netloc.replace("www.", "").strip("/") or None
+
+
+def get_logo(website: str | None) -> str | None:
+    """Best logo URL for a company: Clearbit if available, else Google favicon."""
+    domain = _domain(website)
+    if not domain:
+        return None
+    clearbit = f"https://logo.clearbit.com/{domain}"
+    try:
+        r = requests.get(clearbit, timeout=4, stream=True)
+        if r.status_code == 200 and r.headers.get("Content-Type", "").startswith("image"):
+            return clearbit
+    except Exception:
+        pass
+    return f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
 
 
 def _safe_info(ticker: str) -> dict[str, Any]:
@@ -41,6 +65,7 @@ def get_profile(ticker: str) -> dict[str, Any]:
         "summary": info.get("longBusinessSummary"),
         "country": info.get("country"),
         "website": info.get("website"),
+        "logo": get_logo(info.get("website")),
         "employees": info.get("fullTimeEmployees"),
         "city": info.get("city"),
         "state": info.get("state"),
