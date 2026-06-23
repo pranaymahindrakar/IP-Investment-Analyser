@@ -1,4 +1,7 @@
-# 🔭 Perspective — Investment Analyzer
+# 🎼 Counterpoint — Investment Analyzer
+
+**Live:** https://counterpoint.streamlit.app/
+
 
 See one company **through the lens of another**. Pull any stock for a
 web-grounded brief — core business, recent news, accomplishments, and goals —

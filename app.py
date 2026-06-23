@@ -14,7 +14,7 @@ import streamlit as st
 from perspective import analysis, chat, data_yf
 from perspective.providers import get_llm
 
-st.set_page_config(page_title="Perspective — Investment Analyzer", page_icon="🔭", layout="wide")
+st.set_page_config(page_title="Counterpoint — Investment Analyzer", page_icon="🎼", layout="wide")
 
 
 # --------------------------------------------------------------------------- #
@@ -124,7 +124,7 @@ def render_news(snap: dict):
 # --------------------------------------------------------------------------- #
 # Header + inputs
 # --------------------------------------------------------------------------- #
-st.title("🔭 Perspective")
+st.title("🎼 Counterpoint")
 st.markdown(
     "See one company **through the lens of another**. "
     "Enter a **Target** to analyze, and optionally a **Lens** company to view it from."
